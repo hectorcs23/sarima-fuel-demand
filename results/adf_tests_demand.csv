@@ -1,0 +1,5 @@
+series,on,ADF,p_value,stationary_5%
+gasoline,levels,-2.9694275120974702,0.03784981169440537,True
+gasoline,first differences,-6.551994805446439,8.803904878031268e-09,True
+diesel,levels,-1.5033876237356323,0.5318348691958875,False
+diesel,first differences,-3.632679801908864,0.005166131721424859,True

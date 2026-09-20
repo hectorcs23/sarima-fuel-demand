@@ -51,7 +51,9 @@ The forecast is the input to the team's optimization layer: a supply-chain model
 
 ## Does it actually forecast? (out-of-sample check)
 
-AIC only ranks models on the data they were fitted to. This section adds the test that was missing from the original project: a **rolling-origin backtest** ([`src/backtest_prices.py`](src/backtest_prices.py)) over the last 75 weeks of the price series, expanding window, against two trivial benchmarks.
+AIC only ranks models on the data they were fitted to. This section adds the test that was missing from the original project: **rolling-origin backtests** against trivial benchmarks, expanding window, for both halves of the module — prices first, then demand.
+
+### Prices: the model does not beat a random walk
 
 ![Backtest: error relative to the naive forecast, and interval coverage](docs/img/backtest.png)
 
@@ -72,21 +74,41 @@ At one week everything ties — differences under 3 % of MAE. At four weeks the 
 
 **3. The 95 % intervals are too narrow.** At the four-week horizon the AR(2) interval covers 89 % (regular), 75 % (premium) and 83 % (diesel) of the realized prices instead of 95 %. The fat tails visible in the QQ-plot show up exactly where they hurt: the model is most confident precisely when it should not be.
 
-**What this changes.** For *prices*, the honest conclusion is that a drift benchmark is the right model and the SARIMA machinery buys nothing. For *demand*, the SARIMA structure has a real basis — weekly and seasonal patterns are genuine — but the same test should be run on the station series before trusting the intervals for inventory sizing. The value of the project stands: it delivers a distribution into an optimization layer. The distribution just needs to be honest about its own width.
+### Demand: the model earns its place
+
+The same test on the weekly demand series for Nuevo León ([`src/backtest_demand.py`](src/backtest_demand.py), 60 rolling origins, 2022–2025), against naive, seasonal-naive and a 4-week moving average:
+
+![Demand backtest](docs/img/backtest_demand.png)
+
+| Series | h | SARIMA (project) | Naive | Seasonal naive | Mean of 4 weeks |
+|---|---|---|---|---|---|
+| Gasoline | 1 week | **2.48** (MAPE 6.1 %) | 3.00 | 3.42 | 2.54 |
+| Gasoline | 4 weeks | **2.56** (MAPE 6.3 %) | 3.25 | 3.42 | 2.76 |
+| Diesel | 1 week | 1.51 | 1.95 | 1.72 | **1.42** |
+| Diesel | 4 weeks | 1.51 | **1.51** | 1.61 | 1.38 |
+
+**On gasoline the SARIMA wins**: 17 % lower MAE than the naive forecast at one week and 21 % at four weeks, and it beats every benchmark including the moving average. Re-running the AIC search inside the backtest picks the same orders the project chose — MA(2) with a seasonal MA(1) — so the original model selection holds up. Gasoline demand is also the series the inventory optimization actually needs, and its interval coverage (90 % at h = 1, 91 % at h = 4) is close to nominal.
+
+**On diesel it does not.** Diesel volume at this scale is small and noisy (MAPE ~45 %), and a plain 4-week average forecasts it better. That is worth knowing before sizing diesel refills off this model.
+
+
+**What this changes.** The two halves of the module deserve different verdicts. For **prices**, a random walk with drift is the honest model and the SARIMA machinery buys nothing — weekly retail fuel prices in Mexico are close to unpredictable. For **gasoline demand**, which is what the inventory optimization consumes, the SARIMA is genuinely better than any trivial benchmark and its intervals are nearly calibrated. Diesel needs a simpler model. Running this test is what turns "the AIC was lowest" into "here is where the model helps and where it doesn't".
 
 
 ## Honest limitations
 
 - **Refitting.** Coefficients are fixed after the AIC search. If the series drifts or a structural break hits (a price-policy change, a new competitor), the orders have to be searched again — the model does not adapt on its own.
-- **Normal tails.** The 95 % interval assumes Gaussian errors; measured coverage is 75–89 % instead of 95 %. Student-t innovations would be the direct fix.
+- **Normal tails.** The 95 % interval assumes Gaussian errors; measured coverage is 75–89 % on prices (90–91 % on gasoline demand) instead of 95 %. Student-t innovations would be the direct fix.
 - **Station scaling.** Each station is a scaled version of the regional series plus noise, not an independently modeled series; real station-level effects (local events, road work, a competitor's promotion) are not in the model.
 
 ## Repository
 
 ```
 notebooks/sarima_fuel.ipynb   AIC search, fit, diagnostics, per-station forecast (Spanish comments)
-src/backtest_prices.py        rolling-origin backtest vs naive benchmarks + ADF tests
+src/backtest_prices.py        price backtest vs naive benchmarks + ADF tests
+src/backtest_demand.py        demand backtest vs naive, seasonal naive and moving average
 data/fuel_prices_weekly_MXN.csv   weekly national retail prices, May 2021 – May 2025 (CRE)
+data/fuel_demand_weekly_NL.csv    weekly gasoline and diesel demand, Nuevo Leon 2022–2025 (SENER)
 results/                      backtest metrics and ADF results (CSV)
 docs/                         final report and slides (Spanish), README figures
 ```
