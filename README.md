@@ -55,8 +55,6 @@ AIC only ranks models on the data they were fitted to. This section adds the tes
 
 ### Prices: the model does not beat a random walk
 
-![Backtest: error relative to the naive forecast, and interval coverage](docs/img/backtest.png)
-
 **1. The price series have a unit root.** ADF on levels does not reject non-stationarity (p = 0.73 / 0.58 / 0.87 for regular, premium, diesel); on first differences it rejects decisively (p < 0.001). Consistent with that, the AR(2) coefficients fitted in the project sum to ≈ 1.0005 — the model is a random walk in disguise, which is why its forecast path is nearly flat.
 
 **2. Against a naive forecast, the model adds nothing.** Mean absolute error in MXN/L, 75 rolling origins:
@@ -77,8 +75,6 @@ At one week everything ties — differences under 3 % of MAE. At four weeks the 
 ### Demand: the model earns its place
 
 The same test on the weekly demand series for Nuevo León ([`src/backtest_demand.py`](src/backtest_demand.py), 60 rolling origins, 2022–2025), against naive, seasonal-naive and a 4-week moving average:
-
-![Demand backtest](docs/img/backtest_demand.png)
 
 | Series | h | SARIMA (project) | Naive | Seasonal naive | Mean of 4 weeks |
 |---|---|---|---|---|---|
