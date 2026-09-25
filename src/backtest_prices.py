@@ -15,7 +15,8 @@ What it answers, which AIC alone cannot:
   3. Do the 95 % intervals actually cover 95 % of the realized values?
 
 Usage:
-    python src/backtest_prices.py            # writes results/ and docs/img/backtest.png
+    python src/backtest_prices.py              # writes results/ and docs/img/backtest_*.png
+    python src/backtest_prices.py --plot-only  # redraw the figures from results/
 """
 from __future__ import annotations
 
@@ -150,46 +151,58 @@ def main():
     print(out.pivot_table(index=["series", "model"], columns="h",
                           values=["MAE", "coverage95_%"]).round(3).to_string())
 
-    # 3. figure: error relative to the naive benchmark, and interval coverage
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
-    names = list(MODELS)
-    colors = {"AR(2) levels (AIC pick)": "#d9534f", "ARIMA(p,1,q) (AIC pick)": "#2a6fdb",
-              "Naive (random walk)": "#9aa4b1", "RW + drift": "#2e9e5b"}
-    cols = list(df.columns)
-    x = np.arange(len(cols)); w = 0.2
+    make_figures(out)
+    print(f"\nwrote {RESULTS}/backtest_metrics.csv and the backtest_*.png figures in {FIGS}/")
 
-    for ax, h in zip(axes[:2], HORIZONS):
+
+# -------------------------------------------------------------------- figures
+SHORT = {"AR(2) levels (AIC pick)": "AR(2)", "ARIMA(p,1,q) (AIC pick)": "ARIMA(p,1,q)",
+         "Naive (random walk)": "Naive", "RW + drift": "RW + drift"}
+
+
+def make_figures(out: pd.DataFrame) -> None:
+    """One figure per question: relative MAE at h = 1, at h = 4, and interval coverage."""
+    FIGS.mkdir(parents=True, exist_ok=True)
+    cols = list(dict.fromkeys(out["series"]))
+    names = list(dict.fromkeys(out["model"]))
+    x = np.arange(len(cols))
+    w = 0.8 / len(names)
+
+    for h in HORIZONS:
         sub = out[out.h == h]
+        plt.figure()
         for i, name in enumerate(names):
-            ratio = []
-            for c in cols:
-                mae = sub[(sub.series == c) & (sub.model == name)]["MAE"].iloc[0]
-                base = sub[(sub.series == c) & (sub.model == "Naive (random walk)")]["MAE"].iloc[0]
-                ratio.append(mae / base)
-            ax.bar(x + (i - 1.5) * w, ratio, w, label=name, color=colors[name])
-        ax.axhline(1.0, color="#333", ls="--", lw=1)
-        ax.set_xticks(x); ax.set_xticklabels(cols)
-        ax.set_ylim(0.8, 1.25)
-        ax.set_ylabel("MAE / MAE of naive  (below 1 = better)")
-        ax.set_title(f"{h}-week horizon", loc="left", fontweight="bold", fontsize=12)
-    axes[0].legend(fontsize=8.5, loc="upper left")
+            ratio = [sub[(sub.series == c) & (sub.model == name)]["MAE"].iloc[0] /
+                     sub[(sub.series == c) & (sub.model == "Naive (random walk)")]["MAE"].iloc[0]
+                     for c in cols]
+            plt.plot(x + (i - (len(names) - 1) / 2) * w, ratio, "o", label=SHORT.get(name, name))
+        plt.plot([-0.5, len(cols) - 0.5], [1, 1], "k--", label="Naive = 1")
+        plt.xticks(x, cols)
+        plt.xlim(-0.5, len(cols) + 0.9)  # empty column on the right for the legend
+        plt.xlabel("Series")
+        plt.ylabel("MAE / MAE of naive (below 1 = better)")
+        plt.title(f"Fuel prices: out-of-sample MAE, {h}-week horizon")
+        plt.legend(loc="center right")
+        plt.savefig(FIGS / f"backtest_h{h}.png")
 
-    sub = out[out.h == 4]
+    sub = out[out.h == max(HORIZONS)]
+    plt.figure()
     for i, name in enumerate(names):
         cov = [sub[(sub.series == c) & (sub.model == name)]["coverage95_%"].iloc[0] for c in cols]
-        axes[2].bar(x + (i - 1.5) * w, cov, w, color=colors[name])
-    axes[2].axhline(95, color="#333", ls="--", lw=1)
-    axes[2].text(len(cols) - 0.5, 96, "nominal 95 %", fontsize=9)
-    axes[2].set_xticks(x); axes[2].set_xticklabels(cols)
-    axes[2].set_ylim(0, 108); axes[2].set_ylabel("% of weeks inside the interval")
-    axes[2].set_title("Interval coverage (4 weeks)", loc="left", fontweight="bold", fontsize=12)
-    for ax in axes:
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.grid(axis="y", alpha=.25)
-    fig.tight_layout()
-    fig.savefig(FIGS / "backtest.png", dpi=130)
-    print(f"\nwrote {RESULTS}/backtest_metrics.csv, {RESULTS}/adf_tests.csv, {FIGS}/backtest.png")
+        plt.plot(x + (i - (len(names) - 1) / 2) * w, cov, "o", label=SHORT.get(name, name))
+    plt.plot([-0.5, len(cols) - 0.5], [95, 95], "k--", label="Nominal 95 %")
+    plt.xticks(x, cols)
+    plt.xlim(-0.5, len(cols) + 0.9)
+    plt.xlabel("Series")
+    plt.ylabel("% of weeks inside the 95 % interval")
+    plt.title(f"Fuel prices: interval coverage, {max(HORIZONS)}-week horizon")
+    plt.legend(loc="center right")
+    plt.savefig(FIGS / "backtest_coverage.png")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--plot-only" in sys.argv:      # redraw from the saved metrics, no refit
+        make_figures(pd.read_csv(RESULTS / "backtest_metrics.csv"))
+    else:
+        main()

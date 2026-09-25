@@ -17,6 +17,7 @@ Reported: MAE, RMSE, MAPE and the realized coverage of the nominal 95 % interval
 
 Usage:
     python src/backtest_demand.py
+    python src/backtest_demand.py --plot-only  # redraw the figures from results/
 """
 from __future__ import annotations
 
@@ -157,40 +158,59 @@ def main():
     print(out.pivot_table(index=["series", "model"], columns="h",
                           values=["MAE", "MAPE_%", "coverage95_%"]).round(2).to_string())
 
-    # figure
-    cols = list(df.columns)
-    names = list(MODELS)
-    colors = ["#d9534f", "#2a6fdb", "#9aa4b1", "#2e9e5b", "#e0a100"]
-    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.3))
-    x = np.arange(len(cols)); w = 0.16
-    for ax, h in zip(axes[:2], HORIZONS):
+    make_figures(out)
+    print(f"\nwrote {RESULTS}/backtest_metrics_demand.csv and the backtest_demand_*.png figures in {FIGS}/")
+
+
+# -------------------------------------------------------------------- figures
+SHORT = {"SARIMA(0,1,2)(0,0,1)52 (project)": "SARIMA (project)", "SARIMA by AIC": "SARIMA (AIC)",
+         "Naive (random walk)": "Naive", "Seasonal naive (t-52)": "Seasonal naive",
+         "Mean of last 4 weeks": "Mean 4 wk"}
+
+
+def make_figures(out: pd.DataFrame) -> None:
+    """One figure per question: relative MAE at h = 1, at h = 4, and interval coverage."""
+    FIGS.mkdir(parents=True, exist_ok=True)
+    cols = list(dict.fromkeys(out["series"]))
+    names = list(dict.fromkeys(out["model"]))
+    x = np.arange(len(cols))
+    w = 0.8 / len(names)
+
+    for h in HORIZONS:
         sub = out[out.h == h]
+        plt.figure()
         for i, name in enumerate(names):
             ratio = [sub[(sub.series == c) & (sub.model == name)]["MAE"].iloc[0] /
                      sub[(sub.series == c) & (sub.model == "Naive (random walk)")]["MAE"].iloc[0]
                      for c in cols]
-            ax.bar(x + (i - 2) * w, ratio, w, label=name, color=colors[i])
-        ax.axhline(1.0, color="#333", ls="--", lw=1)
-        ax.set_xticks(x); ax.set_xticklabels(cols)
-        ax.set_ylabel("MAE / MAE of naive  (below 1 = better)")
-        ax.set_title(f"{h}-week horizon", loc="left", fontweight="bold", fontsize=12)
-    axes[0].legend(fontsize=8, loc="upper left")
-    sub = out[out.h == 4]
+            plt.plot(x + (i - (len(names) - 1) / 2) * w, ratio, "o", label=SHORT.get(name, name))
+        plt.plot([-0.5, len(cols) - 0.5], [1, 1], "k--", label="Naive = 1")
+        plt.xticks(x, cols)
+        plt.xlim(-0.5, len(cols) + 0.9)  # empty column on the right for the legend
+        plt.xlabel("Series")
+        plt.ylabel("MAE / MAE of naive (below 1 = better)")
+        plt.title(f"Fuel demand: out-of-sample MAE, {h}-week horizon")
+        plt.legend(loc="center right")
+        plt.savefig(FIGS / f"backtest_demand_h{h}.png")
+
+    sub = out[out.h == max(HORIZONS)]
+    plt.figure()
     for i, name in enumerate(names):
         cov = [sub[(sub.series == c) & (sub.model == name)]["coverage95_%"].iloc[0] for c in cols]
-        axes[2].bar(x + (i - 2) * w, cov, w, color=colors[i])
-    axes[2].axhline(95, color="#333", ls="--", lw=1)
-    axes[2].text(len(cols) - 0.55, 96, "nominal 95 %", fontsize=9)
-    axes[2].set_xticks(x); axes[2].set_xticklabels(cols)
-    axes[2].set_ylim(0, 108); axes[2].set_ylabel("% of weeks inside the interval")
-    axes[2].set_title("Interval coverage (4 weeks)", loc="left", fontweight="bold", fontsize=12)
-    for ax in axes:
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.grid(axis="y", alpha=.25)
-    fig.tight_layout()
-    fig.savefig(FIGS / "backtest_demand.png", dpi=130)
-    print(f"\nwrote {RESULTS}/backtest_metrics_demand.csv and {FIGS}/backtest_demand.png")
+        plt.plot(x + (i - (len(names) - 1) / 2) * w, cov, "o", label=SHORT.get(name, name))
+    plt.plot([-0.5, len(cols) - 0.5], [95, 95], "k--", label="Nominal 95 %")
+    plt.xticks(x, cols)
+    plt.xlim(-0.5, len(cols) + 0.9)
+    plt.xlabel("Series")
+    plt.ylabel("% of weeks inside the 95 % interval")
+    plt.title(f"Fuel demand: interval coverage, {max(HORIZONS)}-week horizon")
+    plt.legend(loc="center right")
+    plt.savefig(FIGS / f"backtest_demand_coverage.png")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--plot-only" in sys.argv:      # redraw from the saved metrics, no refit
+        make_figures(pd.read_csv(RESULTS / "backtest_metrics_demand.csv"))
+    else:
+        main()
